@@ -32,6 +32,7 @@ import {
 } from "./call-window.ts";
 import handleExternalLink from "./handle-external-link.ts";
 import * as AppMenu from "./menu.ts";
+import {loadRemoteInput} from "./remote-input.ts";
 import {_getServerSettings, _isOnline, _saveServerIcon} from "./request.ts";
 import {sentryInit} from "./sentry.ts";
 import {setAutoLaunch} from "./startup.ts";
@@ -164,6 +165,8 @@ function createMainWindow(): BrowserWindow {
   app.setAppUserModelId("org.zulip.zulip-electron");
 
   remoteMain.initialize();
+
+  const remoteInput = loadRemoteInput();
 
   app.on("second-instance", () => {
     if (mainWindow.isMinimized()) {
@@ -359,6 +362,11 @@ function createMainWindow(): BrowserWindow {
   );
 
   ses.setDisplayMediaRequestHandler(handleDisplayMediaRequest);
+
+  ipcMain.on("is-remote-control-supported", (event) => {
+    event.returnValue =
+      remoteInput !== undefined && getCallWindow(event.sender) !== undefined;
+  });
 
   // Temporarily remove this event
   // powerMonitor.on('resume', () => {

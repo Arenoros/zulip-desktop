@@ -23,6 +23,7 @@ export type ElectronBridge = {
   get_send_notification_reply_message_supported: () => boolean;
   set_send_notification_reply_message_supported: (value: boolean) => void;
   decrypt_clipboard: (version: number) => ClipboardDecrypter;
+  get_remote_control_supported: () => boolean;
 };
 /* eslint-enable @typescript-eslint/naming-convention */
 
@@ -73,6 +74,9 @@ const electron_bridge: ElectronBridge = {
 
   decrypt_clipboard: (version: number): ClipboardDecrypter =>
     new ClipboardDecrypterImplementation(version),
+
+  get_remote_control_supported: (): boolean =>
+    ipcRenderer.sendSync("is-remote-control-supported"),
 };
 /* eslint-enable @typescript-eslint/naming-convention */
 
