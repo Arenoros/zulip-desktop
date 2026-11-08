@@ -8,11 +8,14 @@ import {
 } from "electron/main";
 import fs from "node:fs";
 import path from "node:path";
+import process from "node:process";
 
 import * as ConfigUtil from "../common/config-util.ts";
 import * as LinkUtil from "../common/link-util.ts";
 import {t} from "../common/translation-util.ts";
 
+import {openCallWindow} from "./call-window.ts";
+import {isLiveKitCallUrl} from "./livekit-call-url.ts";
 import {send} from "./typed-ipc-main.ts";
 
 function isUploadsUrl(server: string, url: URL): boolean {
@@ -113,12 +116,13 @@ export default function handleExternalLink(
     return;
   }
 
+  const server = new URL(contents.getURL()).origin;
   const downloadPath = ConfigUtil.getConfigItem(
     "downloadsPath",
     app.getPath("downloads"),
   );
 
-  if (isUploadsUrl(new URL(contents.getURL()).origin, url)) {
+  if (isUploadsUrl(server, url)) {
     downloadFile({
       contents,
       url: url.href,
@@ -158,6 +162,10 @@ export default function handleExternalLink(
         }
       },
     });
+  } else if (process.platform === "win32" && isLiveKitCallUrl(server, url)) {
+    // Remote control of a shared screen is only supported on Windows,
+    // so we only open calls in the app there.
+    openCallWindow(url);
   } else {
     (async () => LinkUtil.openBrowser(url))();
   }

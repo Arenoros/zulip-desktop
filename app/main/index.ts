@@ -25,6 +25,11 @@ import type {MenuProperties} from "../common/types.ts";
 
 import {appUpdater, shouldQuitForUpdate} from "./autoupdater.ts";
 import * as BadgeSettings from "./badge-settings.ts";
+import {
+  getCallWindow,
+  handleCallPermissionRequest,
+  handleDisplayMediaRequest,
+} from "./call-window.ts";
 import handleExternalLink from "./handle-external-link.ts";
 import * as AppMenu from "./menu.ts";
 import {_getServerSettings, _isOnline, _saveServerIcon} from "./request.ts";
@@ -323,6 +328,17 @@ function createMainWindow(): BrowserWindow {
 
   ses.setPermissionRequestHandler(
     (sourceWebContents, permission, callback, details) => {
+      const callWindow = getCallWindow(sourceWebContents);
+      if (callWindow !== undefined) {
+        handleCallPermissionRequest(
+          callWindow,
+          permission,
+          details.requestingUrl,
+          callback,
+        );
+        return;
+      }
+
       const {origin} = new URL(details.requestingUrl);
       const permissionCallbackId = nextPermissionCallbackId++;
       permissionCallbacks.set(permissionCallbackId, callback);
@@ -341,6 +357,8 @@ function createMainWindow(): BrowserWindow {
       );
     },
   );
+
+  ses.setDisplayMediaRequestHandler(handleDisplayMediaRequest);
 
   // Temporarily remove this event
   // powerMonitor.on('resume', () => {

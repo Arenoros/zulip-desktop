@@ -30,6 +30,7 @@
 	"Change": "Change",
 	"Change the language from System Preferences → Keyboard → Text → Spelling.": "Change the language from System Preferences → Keyboard → Text → Spelling.",
 	"Check for Updates": "Check for Updates",
+	"Choose a screen to share": "Choose a screen to share",
 	"Click to show {{{fileName}}} in folder": "Click to show {{{fileName}}} in folder",
 	"Close": "Close",
 	"Connect": "Connect",
@@ -143,6 +144,7 @@
 	"Services": "Services",
 	"Setting locked by system administrator.": "Setting locked by system administrator.",
 	"Settings": "Settings",
+	"Share screen": "Share screen",
 	"Shortcuts": "Shortcuts",
 	"Show app icon in system tray": "Show app icon in system tray",
 	"Show desktop notifications": "Show desktop notifications",
@@ -191,5 +193,7 @@
 	"your-organization.zulipchat.com or zulip.your-organization.com": "your-organization.zulipchat.com or zulip.your-organization.com",
 	"{number, plural, one {# unread message} other {# unread messages}}": "{number, plural, one {# unread message} other {# unread messages}}",
 	"{number, plural, one {Could not add # organization} other {Could not add # organizations}}": "{number, plural, one {Could not add # organization} other {Could not add # organizations}}",
-	"{{{server}}} runs an outdated Zulip Server version {{{version}}}. It may not fully work in this app.": "{{{server}}} runs an outdated Zulip Server version {{{version}}}. It may not fully work in this app."
+	"{{{server}}} runs an outdated Zulip Server version {{{version}}}. It may not fully work in this app.": "{{{server}}} runs an outdated Zulip Server version {{{version}}}. It may not fully work in this app.",
+	"{{{width}}} × {{{height}}}": "{{{width}}} × {{{height}}}",
+	"{{{width}}} × {{{height}}}, primary screen": "{{{width}}} × {{{height}}}, primary screen"
 }
