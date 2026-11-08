@@ -16,6 +16,7 @@ import process from "node:process";
 
 import * as remoteMain from "@electron/remote/main";
 import windowStateKeeper from "electron-window-state";
+import {z} from "zod";
 
 import * as ConfigUtil from "../common/config-util.ts";
 import {bundlePath, bundleUrl, publicPath} from "../common/paths.ts";
@@ -29,6 +30,7 @@ import {
   getCallWindow,
   handleCallPermissionRequest,
   handleDisplayMediaRequest,
+  requestRemoteControl,
 } from "./call-window.ts";
 import handleExternalLink from "./handle-external-link.ts";
 import * as AppMenu from "./menu.ts";
@@ -366,6 +368,39 @@ function createMainWindow(): BrowserWindow {
   ipcMain.on("is-remote-control-supported", (event) => {
     event.returnValue =
       remoteInput !== undefined && getCallWindow(event.sender) !== undefined;
+  });
+
+  // Call pages only relay what participants ask for; granting control
+  // is up to the owner of the screen, in a dialog of the app.
+  ipcMain.on("request-remote-control", (event, participant: unknown) => {
+    const callWindow = getCallWindow(event.sender);
+    const result = z
+      .object({
+        identity: z.string().min(1).max(100),
+        name: z.string().min(1).max(200),
+      })
+      .safeParse(participant);
+    if (
+      remoteInput !== undefined &&
+      callWindow !== undefined &&
+      result.success
+    ) {
+      requestRemoteControl(callWindow, result.data);
+    }
+  });
+
+  ipcMain.on("stop-remote-control", (event) => {
+    getCallWindow(event.sender)?.remoteControl.stop();
+  });
+
+  ipcMain.on("screen-share-stopped", (event) => {
+    getCallWindow(event.sender)?.remoteControl.shareStopped();
+  });
+
+  ipcMain.on("remote-control-participant-left", (event, identity: unknown) => {
+    if (typeof identity === "string") {
+      getCallWindow(event.sender)?.remoteControl.participantLeft(identity);
+    }
   });
 
   // Temporarily remove this event

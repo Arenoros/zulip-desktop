@@ -7,13 +7,22 @@ import {
   type WebContents,
   desktopCapturer,
   dialog,
+  globalShortcut,
   screen,
   webContents,
 } from "electron/main";
+import crypto from "node:crypto";
 import path from "node:path";
 
 import {bundlePath} from "../common/paths.ts";
 import {t} from "../common/translation-util.ts";
+import type {CallParticipant} from "../common/types.ts";
+
+import {showControlIndicator} from "./control-indicator.ts";
+import {RemoteControl} from "./remote-control.ts";
+import {send} from "./typed-ipc-main.ts";
+
+const stopControlShortcut = "Ctrl+Alt+Shift+S";
 
 type CallWindow = {
   window: BrowserWindow;
@@ -24,9 +33,75 @@ type CallWindow = {
   // The display the call page last got to share.  Only the main process
   // sets it, so that the call page cannot pick what is controlled.
   sharedDisplayId: number | undefined;
+  remoteControl: RemoteControl;
+  hideControlIndicator: (() => void) | undefined;
 };
 
 const callWindows = new Map<number, CallWindow>();
+
+function isAnyScreenControlled(): boolean {
+  return callWindows
+    .values()
+    .some(({remoteControl}) => remoteControl.state.state === "controlled");
+}
+
+function updateStopControlShortcut(): void {
+  const controlled = isAnyScreenControlled();
+  if (controlled === globalShortcut.isRegistered(stopControlShortcut)) {
+    return;
+  }
+
+  if (!controlled) {
+    globalShortcut.unregister(stopControlShortcut);
+  } else if (
+    !globalShortcut.register(stopControlShortcut, () => {
+      for (const {remoteControl} of callWindows.values()) {
+        remoteControl.stop();
+      }
+    })
+  ) {
+    console.warn("Failed to register", stopControlShortcut);
+  }
+}
+
+async function askConsent(
+  window: BrowserWindow,
+  participant: CallParticipant,
+  signal: AbortSignal,
+): Promise<boolean> {
+  window.flashFrame(true);
+  try {
+    const {response} = await dialog.showMessageBox({
+      type: "question",
+      title: t.__("Remote control"),
+      message: t.__("{{{name}}} wants to control your screen", {
+        name: participant.name,
+      }),
+      detail: t.__(
+        "They will be able to use your mouse and keyboard on the screen you share. You can take back control at any time with {{{shortcut}}}.",
+        {shortcut: stopControlShortcut},
+      ),
+      buttons: [t.__("Allow"), t.__("Deny")],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+      // Deny requests that the owner does not answer.
+      signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
+    });
+    return response === 0;
+  } finally {
+    if (!window.isDestroyed()) {
+      window.flashFrame(false);
+    }
+  }
+}
+
+function sharedDisplay(callWindow: CallWindow): Display {
+  return (
+    screen.getAllDisplays().find(({id}) => id === callWindow.sharedDisplayId) ??
+    screen.getPrimaryDisplay()
+  );
+}
 
 export function openCallWindow(url: URL): void {
   for (const callWindow of callWindows.values()) {
@@ -51,14 +126,47 @@ export function openCallWindow(url: URL): void {
   // The app menu acts on the main window.
   window.removeMenu();
   const {id} = window.webContents;
-  callWindows.set(id, {
+  const callWindow: CallWindow = {
     window,
     url: url.href,
     origin: url.origin,
     chosenScreen: undefined,
     sharedDisplayId: undefined,
+    hideControlIndicator: undefined,
+    remoteControl: new RemoteControl({
+      askConsent: async (participant, signal) =>
+        askConsent(window, participant, signal),
+      controlStarted(controller) {
+        callWindow.hideControlIndicator = showControlIndicator(
+          sharedDisplay(callWindow),
+          controller.name,
+          stopControlShortcut,
+          () => {
+            callWindow.remoteControl.stop();
+          },
+        );
+        updateStopControlShortcut();
+      },
+      controlEnded() {
+        callWindow.hideControlIndicator?.();
+        callWindow.hideControlIndicator = undefined;
+        updateStopControlShortcut();
+      },
+      stateChanged(state) {
+        if (!window.isDestroyed()) {
+          send(window.webContents, "remote-control-state", state);
+        }
+      },
+      newToken: () => crypto.randomBytes(16).toString("hex"),
+    }),
+  };
+  callWindows.set(id, callWindow);
+  // Leaving the call page stops its screen share.
+  window.webContents.on("did-navigate", () => {
+    callWindow.remoteControl.shareStopped();
   });
   window.on("closed", () => {
+    callWindow.remoteControl.shareStopped();
     callWindows.delete(id);
   });
   void window.loadURL(url.href);
@@ -176,4 +284,17 @@ export function handleDisplayMediaRequest(
   callWindow.chosenScreen = undefined;
   callWindow.sharedDisplayId = findDisplay(source)?.id;
   callback({video: source});
+  callWindow.remoteControl.shareStarted();
+}
+
+export function requestRemoteControl(
+  callWindow: CallWindow,
+  participant: CallParticipant,
+): void {
+  // Whoever controls a screen could answer the consent dialog.
+  if (isAnyScreenControlled()) {
+    return;
+  }
+
+  void callWindow.remoteControl.request(participant);
 }

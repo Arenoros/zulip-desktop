@@ -14,6 +14,10 @@ ipcRenderer.on("show-keyboard-shortcuts", () => {
   bridgeEvents.dispatchEvent(new BridgeEvent("show-keyboard-shortcuts"));
 });
 
+ipcRenderer.on("remote-control-state", (_event, state) => {
+  bridgeEvents.dispatchEvent(new BridgeEvent("remote_control_state", [state]));
+});
+
 ipcRenderer.on("show-notification-settings", () => {
   bridgeEvents.dispatchEvent(new BridgeEvent("show-notification-settings"));
 });

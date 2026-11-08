@@ -24,6 +24,10 @@ export type ElectronBridge = {
   set_send_notification_reply_message_supported: (value: boolean) => void;
   decrypt_clipboard: (version: number) => ClipboardDecrypter;
   get_remote_control_supported: () => boolean;
+  request_remote_control: (identity: string, name: string) => void;
+  stop_remote_control: () => void;
+  remote_control_participant_left: (identity: string) => void;
+  screen_share_stopped: () => void;
 };
 /* eslint-enable @typescript-eslint/naming-convention */
 
@@ -77,6 +81,22 @@ const electron_bridge: ElectronBridge = {
 
   get_remote_control_supported: (): boolean =>
     ipcRenderer.sendSync("is-remote-control-supported"),
+
+  request_remote_control(identity: string, name: string): void {
+    ipcRenderer.send("request-remote-control", {identity, name});
+  },
+
+  stop_remote_control(): void {
+    ipcRenderer.send("stop-remote-control");
+  },
+
+  remote_control_participant_left(identity: string): void {
+    ipcRenderer.send("remote-control-participant-left", identity);
+  },
+
+  screen_share_stopped(): void {
+    ipcRenderer.send("screen-share-stopped");
+  },
 };
 /* eslint-enable @typescript-eslint/naming-convention */
 

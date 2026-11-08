@@ -1,5 +1,10 @@
 import type {DndSettings} from "./dnd-util.ts";
-import type {MenuProperties, ServerConfig} from "./types.ts";
+import type {
+  CallParticipant,
+  MenuProperties,
+  RemoteControlState,
+  ServerConfig,
+} from "./types.ts";
 
 export type MainMessage = {
   "clear-app-settings": () => void;
@@ -13,7 +18,11 @@ export type MainMessage = {
   "realm-icon-changed": (serverURL: string, iconURL: string) => void;
   "realm-name-changed": (serverURL: string, realmName: string) => void;
   "reload-full-app": () => void;
+  "remote-control-participant-left": (identity: string) => void;
+  "request-remote-control": (participant: CallParticipant) => void;
   "save-last-tab": (index: number) => void;
+  "screen-share-stopped": () => void;
+  "stop-remote-control": () => void;
   "switch-server-tab": (index: number) => void;
   "toggle-badge-option": (newValue: boolean) => void;
   "toggle-menubar": (showMenubar: boolean) => void;
@@ -58,6 +67,7 @@ export type RendererMessage = {
   "reload-current-viewer": () => void;
   "reload-proxy": (showAlert: boolean) => void;
   "reload-viewer": () => void;
+  "remote-control-state": (state: RemoteControlState) => void;
   "render-taskbar-icon": (messageCount: number) => void;
   "render-tray-icon": (unreadCount: number) => void;
   "set-active": () => void;
