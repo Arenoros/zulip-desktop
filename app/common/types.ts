@@ -9,6 +9,16 @@ export const exactPartial = <Shape extends z.ZodRawShape>(
     -readonly [K in keyof Shape]: z.ZodExactOptional<Shape[K]>;
   }>;
 
+export type CallParticipant = {identity: string; name: string};
+
+// What a call page learns about the remote control of its screen
+// share.  The token goes to the controller, whose input must carry it.
+export type RemoteControlState =
+  | {state: "none"}
+  | {state: "shared"}
+  | {state: "requested"; participant: CallParticipant}
+  | {state: "controlled"; participant: CallParticipant; token: string};
+
 export type MenuProperties = {
   tabs: TabData[];
   activeTabIndex?: number;
