@@ -19,7 +19,9 @@ import {t} from "../common/translation-util.ts";
 import type {CallParticipant} from "../common/types.ts";
 
 import {showControlIndicator} from "./control-indicator.ts";
+import {ControllerInput} from "./controller-input.ts";
 import {RemoteControl} from "./remote-control.ts";
+import {loadRemoteInput} from "./remote-input.ts";
 import {send} from "./typed-ipc-main.ts";
 
 const stopControlShortcut = "Ctrl+Alt+Shift+S";
@@ -34,6 +36,7 @@ type CallWindow = {
   // sets it, so that the call page cannot pick what is controlled.
   sharedDisplayId: number | undefined;
   remoteControl: RemoteControl;
+  controllerInput: ControllerInput | undefined;
   hideControlIndicator: (() => void) | undefined;
 };
 
@@ -126,12 +129,14 @@ export function openCallWindow(url: URL): void {
   // The app menu acts on the main window.
   window.removeMenu();
   const {id} = window.webContents;
+  const remoteInput = loadRemoteInput();
   const callWindow: CallWindow = {
     window,
     url: url.href,
     origin: url.origin,
     chosenScreen: undefined,
     sharedDisplayId: undefined,
+    controllerInput: undefined,
     hideControlIndicator: undefined,
     remoteControl: new RemoteControl({
       askConsent: async (participant, signal) =>
@@ -148,6 +153,7 @@ export function openCallWindow(url: URL): void {
         updateStopControlShortcut();
       },
       controlEnded() {
+        remoteInput?.releaseAll();
         callWindow.hideControlIndicator?.();
         callWindow.hideControlIndicator = undefined;
         updateStopControlShortcut();
@@ -160,9 +166,27 @@ export function openCallWindow(url: URL): void {
       newToken: () => crypto.randomBytes(16).toString("hex"),
     }),
   };
+  if (remoteInput !== undefined) {
+    callWindow.controllerInput = new ControllerInput(
+      callWindow.remoteControl,
+      remoteInput,
+      () => {
+        const display = screen
+          .getAllDisplays()
+          .find((display) => display.id === callWindow.sharedDisplayId);
+        return display === undefined
+          ? undefined
+          : screen.dipToScreenRect(null, display.bounds);
+      },
+    );
+  }
+
   callWindows.set(id, callWindow);
   // Leaving the call page stops its screen share.
   window.webContents.on("did-navigate", () => {
+    callWindow.remoteControl.shareStopped();
+  });
+  window.webContents.on("render-process-gone", () => {
     callWindow.remoteControl.shareStopped();
   });
   window.on("closed", () => {

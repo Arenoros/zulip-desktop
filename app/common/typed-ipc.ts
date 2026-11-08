@@ -19,6 +19,7 @@ export type MainMessage = {
   "realm-name-changed": (serverURL: string, realmName: string) => void;
   "reload-full-app": () => void;
   "remote-control-participant-left": (identity: string) => void;
+  "remote-control-input": (identity: string, message: unknown) => void;
   "request-remote-control": (participant: CallParticipant) => void;
   "save-last-tab": (index: number) => void;
   "screen-share-stopped": () => void;

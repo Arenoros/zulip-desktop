@@ -370,6 +370,18 @@ function createMainWindow(): BrowserWindow {
       remoteInput !== undefined && getCallWindow(event.sender) !== undefined;
   });
 
+  ipcMain.on(
+    "remote-control-input",
+    (event, identity: unknown, message: unknown) => {
+      if (event.senderFrame === event.sender.mainFrame) {
+        getCallWindow(event.sender)?.controllerInput?.receive(
+          identity,
+          message,
+        );
+      }
+    },
+  );
+
   // Call pages only relay what participants ask for; granting control
   // is up to the owner of the screen, in a dialog of the app.
   ipcMain.on("request-remote-control", (event, participant: unknown) => {

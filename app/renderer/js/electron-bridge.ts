@@ -24,6 +24,7 @@ export type ElectronBridge = {
   set_send_notification_reply_message_supported: (value: boolean) => void;
   decrypt_clipboard: (version: number) => ClipboardDecrypter;
   get_remote_control_supported: () => boolean;
+  send_remote_control_input: (identity: string, message: unknown) => void;
   request_remote_control: (identity: string, name: string) => void;
   stop_remote_control: () => void;
   remote_control_participant_left: (identity: string) => void;
@@ -84,6 +85,10 @@ const electron_bridge: ElectronBridge = {
 
   request_remote_control(identity: string, name: string): void {
     ipcRenderer.send("request-remote-control", {identity, name});
+  },
+
+  send_remote_control_input(identity: string, message: unknown): void {
+    ipcRenderer.send("remote-control-input", identity, message);
   },
 
   stop_remote_control(): void {
