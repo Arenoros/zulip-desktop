@@ -90,6 +90,15 @@ export class RemoteControl {
       token: this.hooks.newToken(),
     });
     this.hooks.controlStarted(participant);
+    this.inputReceived();
+  }
+
+  inputReceived(): void {
+    if (this.current.state !== "controlled") {
+      return;
+    }
+
+    clearTimeout(this.inactivityTimer);
     this.inactivityTimer = setTimeout(() => {
       this.stop();
     }, this.inactivityTimeout);
