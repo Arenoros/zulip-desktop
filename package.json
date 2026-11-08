@@ -73,6 +73,9 @@
     "xo": "^5.0.0",
     "zod": "^4.1.5"
   },
+  "optionalDependencies": {
+    "zulip-remote-input": "file:packages/remote-input"
+  },
   "productName": "Zulip",
   "desktopName": "org.zulip.Zulip.desktop",
   "copyright": "Kandra Labs, Inc.",

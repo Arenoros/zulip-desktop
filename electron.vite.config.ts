@@ -8,7 +8,12 @@ export default defineConfig({
         input: {
           index: "app/main/index.ts",
         },
-        external: ["electron", /^electron\//v, /^gatemaker\//v],
+        external: [
+          "electron",
+          /^electron\//v,
+          /^gatemaker\//v,
+          "zulip-remote-input",
+        ],
       },
     },
     resolve: {

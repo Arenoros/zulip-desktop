@@ -1,0 +1,16 @@
+{
+  "name": "zulip-remote-input",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Mouse and keyboard input injection for remote control of a shared screen",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./build/Release/remote_input.node",
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "win32"
+  ],
+  "gypfile": true
+}

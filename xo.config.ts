@@ -14,6 +14,10 @@ const restrictedMainImports = [
     name: "electron-log/main",
     message: "Cannot use main-only APIs here.",
   },
+  {
+    name: "zulip-remote-input",
+    message: "Cannot use main-only APIs here.",
+  },
 ];
 
 const restrictedRendererImports = [
@@ -36,7 +40,7 @@ const xoConfig: FlatXoConfig = [
     prettier: "compat",
   },
   {
-    files: ["package.json"],
+    files: ["package.json", "packages/*/package.json"],
     rules: {
       "package-json/no-install-scripts": "off",
       "package-json/prefer-exports": "off",

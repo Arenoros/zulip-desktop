@@ -4,6 +4,7 @@
 # Compiled binary build directory
 /dist/
 /out/
+/packages/remote-input/build/
 
 # Logs
 logs

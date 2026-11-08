@@ -296,6 +296,10 @@ importers:
       zod:
         specifier: ^4.1.5
         version: 4.6.7
+    optionalDependencies:
+      zulip-remote-input:
+        specifier: file:packages/remote-input
+        version: file:packages/remote-input
 
 packages:
 
@@ -4698,6 +4702,10 @@ packages:
 
   zod@4.6.7:
     resolution: {integrity: sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==}
+
+  zulip-remote-input@file:packages/remote-input:
+    resolution: {directory: packages/remote-input, type: directory}
+    os: [win32]
 
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
@@ -9635,5 +9643,8 @@ snapshots:
   yoctocolors@2.2.0: {}
 
   zod@4.6.7: {}
+
+  zulip-remote-input@file:packages/remote-input:
+    optional: true
 
   zwitch@2.0.4: {}

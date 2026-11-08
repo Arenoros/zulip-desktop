@@ -4,6 +4,7 @@ allowBuilds:
   esbuild: false
   fs-xattr: false
   unrs-resolver: false
+  zulip-remote-input@file:packages/remote-input: true
 
 minimumReleaseAge: 1440
 
