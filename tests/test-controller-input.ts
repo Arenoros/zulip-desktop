@@ -33,7 +33,10 @@ function setup() {
       calls.push(["wheel", x, y]);
       return accepted;
     },
-    setKey: () => true,
+    setKey(scanCode, down) {
+      calls.push(["key", scanCode, down]);
+      return accepted;
+    },
     getCursorPosition: () => ({x: 0, y: 0}),
   });
   const control = new RemoteControl(
@@ -56,11 +59,20 @@ function setup() {
     sequence,
     event,
   });
+  const key = (sequence: number, code: string, down: boolean) => ({
+    version: 1,
+    type: "key",
+    token,
+    sequence,
+    code,
+    down,
+  });
   return {
     calls,
     control,
     receiver,
     message,
+    key,
     async grant() {
       control.shareStarted();
       await control.request(participant);
@@ -177,7 +189,7 @@ test("Late moves are dropped without dropping reliable button releases", async (
   s.control.stop();
 });
 
-test("Every end of control releases held buttons", async (t) => {
+test("Every end of control releases held buttons and keys", async (t) => {
   for (const end of [
     (s: ReturnType<typeof setup>) => {
       s.control.stop();
@@ -193,7 +205,7 @@ test("Every end of control releases held buttons", async (t) => {
     },
     (s: ReturnType<typeof setup>) => {
       s.removeDisplay();
-      s.receiver.receive("8", s.message(3, {type: "move", x: 0, y: 0}));
+      s.receiver.receive("8", s.message(4, {type: "move", x: 0, y: 0}));
     },
   ]) {
     const s = setup();
@@ -207,9 +219,11 @@ test("Every end of control releases held buttons", async (t) => {
       "8",
       s.message(2, {type: "button", button: "right", down: true, x: 0, y: 0}),
     );
+    s.receiver.receive("8", s.key(3, "ShiftLeft", true));
     s.calls.length = 0;
     end(s);
     t.deepEqual(s.calls, [
+      ["key", 0x2a, false],
       ["button", "left", false],
       ["button", "right", false],
     ]);
@@ -231,6 +245,19 @@ test("Input rate is bounded and exhaustion releases a held button", async (t) =>
   t.equal(s.control.state.state, "shared");
   t.equal(s.calls.length, 122);
   t.deepEqual(s.calls.at(-1), ["button", "left", false]);
+});
+
+test("Keys count toward the input rate", async (t) => {
+  const s = setup();
+  await s.grant();
+  // Held keys repeat.
+  for (let sequence = 1; sequence <= 121; sequence += 1) {
+    s.receiver.receive("8", s.key(sequence, "KeyA", true), 0);
+  }
+
+  t.equal(s.control.state.state, "shared");
+  t.equal(s.calls.length, 121);
+  t.deepEqual(s.calls.at(-1), ["key", 0x1e, false]);
 });
 
 test("Accepted input refreshes the inactivity timeout; rejected input does not", async (t) => {
@@ -256,9 +283,71 @@ test("Accepted input refreshes the inactivity timeout; rejected input does not",
 });
 
 test("Rejected native input ends control without crashing", async (t) => {
+  for (const message of [
+    (s: ReturnType<typeof setup>) => s.message(1, {type: "move", x: 0, y: 0}),
+    (s: ReturnType<typeof setup>) => s.key(1, "KeyA", true),
+  ]) {
+    const s = setup();
+    // eslint-disable-next-line no-await-in-loop -- Each scenario owns its grant and input state.
+    await s.grant();
+    s.rejectInput();
+    s.receiver.receive("8", message(s));
+    t.equal(s.control.state.state, "shared");
+  }
+});
+
+test("Keys are pressed by their physical key, for the controller only", async (t) => {
+  const s = setup();
+  s.receiver.receive("8", s.key(1, "KeyA", true));
+  t.deepEqual(s.calls, [], "no key is pressed without a grant");
+  await s.grant();
+  s.receiver.receive("intruder", s.key(1, "KeyA", true));
+  for (const invalid of [
+    {...s.key(1, "KeyA", true), token: "b".repeat(32)},
+    {...s.key(1, "KeyA", true), version: 2},
+    {...s.key(1, "KeyA", true), down: "yes"},
+    {...s.key(1, "KeyA", true), code: "K".repeat(33)},
+  ]) {
+    s.receiver.receive("8", invalid);
+  }
+
+  s.receiver.receive("8", s.key(1, "MetaLeft", true));
+  s.receiver.receive("8", s.key(2, "MetaRight", true));
+  s.receiver.receive("8", s.key(3, "Hyper", true));
+  t.deepEqual(s.calls, [], "the Windows keys and unknown keys are ignored");
+  s.receiver.receive("8", s.key(4, "KeyA", true));
+  s.receiver.receive("8", s.key(5, "KeyA", false));
+  s.receiver.receive("8", s.key(6, "ArrowUp", true));
+  s.receiver.receive("8", s.key(7, "ControlRight", true));
+  t.deepEqual(s.calls, [
+    ["key", 0x1e, true],
+    ["key", 0x1e, false],
+    ["key", 0xe0_48, true],
+    ["key", 0xe0_1d, true],
+  ]);
+  s.control.stop();
+});
+
+test("Keys are pressed in order and once, without making moves late", async (t) => {
   const s = setup();
   await s.grant();
-  s.rejectInput();
+  s.receiver.receive("8", s.key(2, "KeyB", true));
+  s.receiver.receive("8", s.key(2, "KeyB", true));
+  s.receiver.receive("8", s.key(1, "KeyA", true));
+  // A move sent before the key still moves the cursor.
   s.receiver.receive("8", s.message(1, {type: "move", x: 0, y: 0}));
-  t.equal(s.control.state.state, "shared");
+  s.receiver.receive(
+    "8",
+    s.message(3, {type: "button", button: "left", down: true, x: 0, y: 0}),
+  );
+  s.receiver.receive("8", s.key(3, "KeyB", false));
+  s.receiver.receive("8", s.key(4, "KeyB", false));
+  t.deepEqual(s.calls, [
+    ["key", 0x30, true],
+    ["move", 0, 0],
+    ["move", 0, 0],
+    ["button", "left", true],
+    ["key", 0x30, false],
+  ]);
+  s.control.stop();
 });

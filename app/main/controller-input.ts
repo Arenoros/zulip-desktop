@@ -2,34 +2,47 @@ import {z} from "zod";
 
 import type {RemoteControl} from "./remote-control.ts";
 import type {RemoteInput} from "./remote-input.ts";
+import {scanCodes} from "./scan-codes.ts";
 
 const positionSchema = {
   x: z.number().min(0).max(1),
   y: z.number().min(0).max(1),
 };
 
-// Version 1 of the mouse messages sent by the Zulip call page.
-const messageSchema = z.object({
+const grantSchema = {
   version: z.literal(1),
-  type: z.literal("mouse"),
   token: z.string().length(32),
   sequence: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
-  event: z.discriminatedUnion("type", [
-    z.object({type: z.literal("move"), ...positionSchema}),
-    z.object({
-      type: z.literal("button"),
-      ...positionSchema,
-      button: z.enum(["left", "middle", "right"]),
-      down: z.boolean(),
-    }),
-    z.object({
-      type: z.literal("wheel"),
-      ...positionSchema,
-      dx: z.number().int().min(-12_000).max(12_000),
-      dy: z.number().int().min(-12_000).max(12_000),
-    }),
-  ]),
-});
+};
+
+// Version 1 of the mouse and key messages sent by the Zulip call page.
+const messageSchema = z.discriminatedUnion("type", [
+  z.object({
+    ...grantSchema,
+    type: z.literal("mouse"),
+    event: z.discriminatedUnion("type", [
+      z.object({type: z.literal("move"), ...positionSchema}),
+      z.object({
+        type: z.literal("button"),
+        ...positionSchema,
+        button: z.enum(["left", "middle", "right"]),
+        down: z.boolean(),
+      }),
+      z.object({
+        type: z.literal("wheel"),
+        ...positionSchema,
+        dx: z.number().int().min(-12_000).max(12_000),
+        dy: z.number().int().min(-12_000).max(12_000),
+      }),
+    ]),
+  }),
+  z.object({
+    ...grantSchema,
+    type: z.literal("key"),
+    code: z.string().max(32),
+    down: z.boolean(),
+  }),
+]);
 type Message = z.infer<typeof messageSchema>;
 
 export type ScreenBounds = {
@@ -96,7 +109,7 @@ export class ControllerInput {
 
     if (
       message.sequence <=
-      (message.event.type === "move"
+      (message.type === "mouse" && message.event.type === "move"
         ? this.lastPositionSequence
         : this.lastReliableSequence)
     ) {
@@ -110,7 +123,7 @@ export class ControllerInput {
     );
     this.lastEventTime = now;
     if (this.allowance < 1) {
-      // Dropping a button-up could leave a drag active on the owner's PC.
+      // Dropping a button-up or key-up could leave it held on the owner's PC.
       this.control.stop();
       return false;
     }
@@ -142,6 +155,17 @@ export class ControllerInput {
     }
 
     const message = result.data;
+    if (message.type === "key") {
+      const scanCode = scanCodes.get(message.code);
+      // Keys missing from scanCodes, like the Windows keys, are ignored.
+      if (scanCode !== undefined && this.admit(message, now)) {
+        this.lastReliableSequence = message.sequence;
+        this.injected(this.input.setKey(scanCode, message.down));
+      }
+
+      return;
+    }
+
     if (!this.admit(message, now)) {
       return;
     }
