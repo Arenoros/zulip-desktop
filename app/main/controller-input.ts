@@ -30,6 +30,7 @@ const messageSchema = z.object({
     }),
   ]),
 });
+type Message = z.infer<typeof messageSchema>;
 
 export type ScreenBounds = {
   x: number;
@@ -83,6 +84,49 @@ export class ControllerInput {
     this.getBounds = getBounds;
   }
 
+  // Whether a message is new, and within the input rate limit.
+  private admit(message: Message, now: number): boolean {
+    if (this.token !== message.token) {
+      this.token = message.token;
+      this.lastPositionSequence = 0;
+      this.lastReliableSequence = 0;
+      this.allowance = 120;
+      this.lastEventTime = now;
+    }
+
+    if (
+      message.sequence <=
+      (message.event.type === "move"
+        ? this.lastPositionSequence
+        : this.lastReliableSequence)
+    ) {
+      return false;
+    }
+
+    // A burst is allowed, but sustained input is limited to 120 events/s.
+    this.allowance = Math.min(
+      120,
+      this.allowance + Math.max(0, now - this.lastEventTime) * 0.12,
+    );
+    this.lastEventTime = now;
+    if (this.allowance < 1) {
+      // Dropping a button-up could leave a drag active on the owner's PC.
+      this.control.stop();
+      return false;
+    }
+
+    this.allowance -= 1;
+    return true;
+  }
+
+  private injected(accepted: boolean): void {
+    if (accepted) {
+      this.control.inputReceived();
+    } else {
+      this.control.stop();
+    }
+  }
+
   receive(identity: unknown, data: unknown, now = performance.now()): void {
     const {state} = this.control;
     if (
@@ -97,36 +141,12 @@ export class ControllerInput {
       return;
     }
 
-    const {token, sequence, event} = result.data;
-    if (this.token !== token) {
-      this.token = token;
-      this.lastPositionSequence = 0;
-      this.lastReliableSequence = 0;
-      this.allowance = 120;
-      this.lastEventTime = now;
-    }
-
-    if (
-      sequence <=
-      (event.type === "move"
-        ? this.lastPositionSequence
-        : this.lastReliableSequence)
-    ) {
+    const message = result.data;
+    if (!this.admit(message, now)) {
       return;
     }
 
-    // A burst is allowed, but sustained input is limited to 120 events/s.
-    this.allowance = Math.min(
-      120,
-      this.allowance + Math.max(0, now - this.lastEventTime) * 0.12,
-    );
-    this.lastEventTime = now;
-    if (this.allowance < 1) {
-      // Dropping a button-up could leave a drag active on the owner's PC.
-      this.control.stop();
-      return;
-    }
-
+    const {sequence, event} = message;
     const bounds = this.getBounds();
     const point = bounds === undefined ? undefined : screenPoint(event, bounds);
     if (point === undefined) {
@@ -134,7 +154,6 @@ export class ControllerInput {
       return;
     }
 
-    this.allowance -= 1;
     this.lastPositionSequence = Math.max(this.lastPositionSequence, sequence);
     if (event.type !== "move") {
       this.lastReliableSequence = sequence;
@@ -149,17 +168,12 @@ export class ControllerInput {
       return;
     }
 
-    let accepted = true;
     if (event.type === "button") {
-      accepted = this.input.setMouseButton(event.button, event.down);
+      this.injected(this.input.setMouseButton(event.button, event.down));
     } else if (event.type === "wheel") {
-      accepted = this.input.scrollWheel(event.dx, -event.dy);
-    }
-
-    if (accepted) {
-      this.control.inputReceived();
+      this.injected(this.input.scrollWheel(event.dx, -event.dy));
     } else {
-      this.control.stop();
+      this.injected(true);
     }
   }
 }
