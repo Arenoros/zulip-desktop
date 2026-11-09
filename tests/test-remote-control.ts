@@ -6,7 +6,7 @@ import {RemoteControl} from "../app/main/remote-control.ts";
 const cordelia = {identity: "8", name: "Cordelia"};
 const hamlet = {identity: "10", name: "King Hamlet"};
 
-function setUp(inactivityTimeout?: number) {
+function setUp(inactivityTimeout?: number, requestCooldown?: number) {
   const consents: Array<{
     participant: CallParticipant;
     signal: AbortSignal;
@@ -43,6 +43,7 @@ function setUp(inactivityTimeout?: number) {
       },
     },
     inactivityTimeout,
+    requestCooldown,
   );
   return {control, consents, events, states, endedStates};
 }
@@ -230,4 +231,50 @@ test("Control ends after the inactivity timeout", async (t) => {
   });
   t.deepEqual(control.state, {state: "shared"});
   t.deepEqual(events, ["started 8", "ended"]);
+});
+
+test("A refused participant cannot ask again until the cooldown ends", async (t) => {
+  const {control, consents} = setUp(undefined, 30);
+  control.shareStarted();
+  const request = control.request(cordelia);
+  consents[0]!.answer(false);
+  await request;
+  await control.request(cordelia);
+  t.equal(consents.length, 1, "refused just now");
+  t.deepEqual(control.state, {state: "shared"});
+
+  // Others can still ask.
+  const other = control.request(hamlet);
+  t.equal(consents.length, 2);
+  consents[1]!.fail(new Error("No dialog"));
+  await other;
+  await control.request(hamlet);
+  t.equal(consents.length, 2, "a failure to ask counts as refusing");
+
+  await new Promise((resolve) => {
+    setTimeout(resolve, 50);
+  });
+  void control.request(cordelia);
+  t.equal(consents.length, 3, "after the cooldown");
+  t.deepEqual(control.state, {state: "requested", participant: cordelia});
+  control.shareStopped();
+});
+
+test("Only refusals delay the next request", async (t) => {
+  const setup = setUp(undefined, 60_000);
+  const {control, consents} = setup;
+  control.shareStarted();
+  const first = control.request(cordelia);
+  control.participantLeft(cordelia.identity);
+  await first;
+  void control.request(cordelia);
+  t.equal(consents.length, 2, "after leaving during the request");
+  control.shareStopped();
+
+  control.shareStarted();
+  await grant(setup, cordelia);
+  control.stop();
+  void control.request(cordelia);
+  t.equal(consents.length, 4, "after control ended");
+  control.shareStopped();
 });

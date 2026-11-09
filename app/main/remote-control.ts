@@ -19,13 +19,21 @@ export type RemoteControlHooks = {
 export class RemoteControl {
   private readonly hooks: RemoteControlHooks;
   private readonly inactivityTimeout: number;
+  private readonly requestCooldown: number;
+  // When the owner last refused each participant's request.
+  private readonly refusals = new Map<string, number>();
   private current: RemoteControlState = {state: "none"};
   private pendingConsent: AbortController | undefined;
   private inactivityTimer: ReturnType<typeof setTimeout> | undefined;
 
-  constructor(hooks: RemoteControlHooks, inactivityTimeout = 10 * 60 * 1000) {
+  constructor(
+    hooks: RemoteControlHooks,
+    inactivityTimeout = 10 * 60 * 1000,
+    requestCooldown = 30 * 1000,
+  ) {
     this.hooks = hooks;
     this.inactivityTimeout = inactivityTimeout;
+    this.requestCooldown = requestCooldown;
   }
 
   // Ends any request or control, moving to the next state.
@@ -63,6 +71,15 @@ export class RemoteControl {
       return;
     }
 
+    // Keeps a participant from asking the owner again and again.
+    const refused = this.refusals.get(participant.identity);
+    if (
+      refused !== undefined &&
+      performance.now() - refused < this.requestCooldown
+    ) {
+      return;
+    }
+
     const consent = new AbortController();
     this.pendingConsent = consent;
     this.setState({state: "requested", participant});
@@ -80,6 +97,7 @@ export class RemoteControl {
 
     this.pendingConsent = undefined;
     if (!allowed) {
+      this.refusals.set(participant.identity, performance.now());
       this.setState({state: "shared"});
       return;
     }
