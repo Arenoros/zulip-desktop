@@ -9,6 +9,7 @@ import {
   desktopCapturer,
   dialog,
   globalShortcut,
+  powerMonitor,
   screen,
   webContents,
 } from "electron/main";
@@ -191,7 +192,12 @@ export function openCallWindow(url: URL): void {
     }
   };
 
+  const stopControl = (): void => {
+    callWindow.remoteControl.stop();
+  };
+
   screen.on("display-removed", stopControlOnRemovedDisplay);
+  powerMonitor.on("lock-screen", stopControl);
   callWindows.set(id, callWindow);
   // Leaving the call page stops its screen share.
   window.webContents.on("did-navigate", () => {
@@ -202,6 +208,7 @@ export function openCallWindow(url: URL): void {
   });
   window.on("closed", () => {
     screen.off("display-removed", stopControlOnRemovedDisplay);
+    powerMonitor.off("lock-screen", stopControl);
     callWindow.remoteControl.shareStopped();
     callWindows.delete(id);
   });
