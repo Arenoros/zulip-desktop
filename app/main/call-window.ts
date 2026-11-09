@@ -40,6 +40,7 @@ type CallWindow = {
   remoteControl: RemoteControl;
   controllerInput: ControllerInput | undefined;
   hideControlIndicator: (() => void) | undefined;
+  stopWatchingCallPage: (() => void) | undefined;
 };
 
 const callWindows = new Map<number, CallWindow>();
@@ -101,6 +102,30 @@ async function askConsent(
   }
 }
 
+// Calls onHang if the page stops responding.  Remote input only reaches
+// the app through the call page, so a hung page could not release the
+// keys and buttons it holds.
+function watchCallPage(contents: WebContents, onHang: () => void): () => void {
+  let answered = true;
+  const timer = setInterval(() => {
+    if (!answered) {
+      onHang();
+      return;
+    }
+
+    answered = false;
+    void contents
+      .executeJavaScript("0")
+      .then(() => {
+        answered = true;
+      })
+      .catch(() => undefined);
+  }, 2500);
+  return () => {
+    clearInterval(timer);
+  };
+}
+
 function sharedDisplay(callWindow: CallWindow): Display {
   return (
     screen.getAllDisplays().find(({id}) => id === callWindow.sharedDisplayId) ??
@@ -140,6 +165,7 @@ export function openCallWindow(url: URL): void {
     sharedDisplayId: undefined,
     controllerInput: undefined,
     hideControlIndicator: undefined,
+    stopWatchingCallPage: undefined,
     remoteControl: new RemoteControl({
       askConsent: async (participant, signal) =>
         askConsent(window, participant, signal),
@@ -152,9 +178,17 @@ export function openCallWindow(url: URL): void {
             callWindow.remoteControl.stop();
           },
         );
+        callWindow.stopWatchingCallPage = watchCallPage(
+          window.webContents,
+          () => {
+            callWindow.remoteControl.stop();
+          },
+        );
         updateStopControlShortcut();
       },
       controlEnded() {
+        callWindow.stopWatchingCallPage?.();
+        callWindow.stopWatchingCallPage = undefined;
         remoteInput?.releaseAll();
         callWindow.hideControlIndicator?.();
         callWindow.hideControlIndicator = undefined;
