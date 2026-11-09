@@ -3,6 +3,7 @@ import {
   type DesktopCapturerSource,
   type Display,
   type DisplayMediaRequestHandlerHandlerRequest,
+  type Event,
   type Streams,
   type WebContents,
   desktopCapturer,
@@ -181,6 +182,16 @@ export function openCallWindow(url: URL): void {
     );
   }
 
+  const stopControlOnRemovedDisplay = (
+    _event: Event,
+    display: Display,
+  ): void => {
+    if (display.id === callWindow.sharedDisplayId) {
+      callWindow.remoteControl.stop();
+    }
+  };
+
+  screen.on("display-removed", stopControlOnRemovedDisplay);
   callWindows.set(id, callWindow);
   // Leaving the call page stops its screen share.
   window.webContents.on("did-navigate", () => {
@@ -190,6 +201,7 @@ export function openCallWindow(url: URL): void {
     callWindow.remoteControl.shareStopped();
   });
   window.on("closed", () => {
+    screen.off("display-removed", stopControlOnRemovedDisplay);
     callWindow.remoteControl.shareStopped();
     callWindows.delete(id);
   });
