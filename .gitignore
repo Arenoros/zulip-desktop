@@ -25,3 +25,4 @@ config.gypi
 # tests/package.json
 
 .python-version
+.scratch
