@@ -18,6 +18,14 @@ ipcRenderer.on("remote-control-state", (_event, state) => {
   bridgeEvents.dispatchEvent(new BridgeEvent("remote_control_state", [state]));
 });
 
+ipcRenderer.on("screen-share-change-source", () => {
+  bridgeEvents.dispatchEvent(new BridgeEvent("screen_share_change_source"));
+});
+
+ipcRenderer.on("screen-share-stop", () => {
+  bridgeEvents.dispatchEvent(new BridgeEvent("screen_share_stop"));
+});
+
 ipcRenderer.on("show-notification-settings", () => {
   bridgeEvents.dispatchEvent(new BridgeEvent("show-notification-settings"));
 });

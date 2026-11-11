@@ -19,11 +19,15 @@ import {bundlePath} from "../common/paths.ts";
 import {t} from "../common/translation-util.ts";
 import type {CallParticipant} from "../common/types.ts";
 
-import {showControlIndicator} from "./control-indicator.ts";
 import {ControllerInput} from "./controller-input.ts";
 import {RemoteControl} from "./remote-control.ts";
 import {loadRemoteInput} from "./remote-input.ts";
-import {type SourceKind, sourceKind} from "./share-source.ts";
+import {SharePanel} from "./share-panel.ts";
+import {
+  type SharePanelAction,
+  type SourceKind,
+  sourceKind,
+} from "./share-source.ts";
 import {chooseSource, findDisplay} from "./source-picker.ts";
 import {send} from "./typed-ipc-main.ts";
 
@@ -35,15 +39,20 @@ type CallWindow = {
   origin: string;
   // The source the user chose to share, until the call page gets it.
   chosenSource: DesktopCapturerSource | undefined;
+  // A source the user chose from the share panel, which the call page
+  // is asked to share instead of the current one.
+  replacementSource: DesktopCapturerSource | undefined;
   choosingSource: boolean;
   // What the call page last got to share, and the display if it is a
   // screen.  Only the main process sets them, so that the call page
   // cannot pick what is controlled.
-  sharedSource: {kind: SourceKind} | undefined;
+  sharedSource: {kind: SourceKind; name: string} | undefined;
   sharedDisplayId: number | undefined;
+  // Whether the call page handles the buttons of the share panel.
+  sharePanelSupported: boolean;
+  sharePanel: SharePanel | undefined;
   remoteControl: RemoteControl;
   controllerInput: ControllerInput | undefined;
-  hideControlIndicator: (() => void) | undefined;
   stopWatchingCallPage: (() => void) | undefined;
 };
 
@@ -130,11 +139,98 @@ function watchCallPage(contents: WebContents, onHang: () => void): () => void {
   };
 }
 
-function sharedDisplay(callWindow: CallWindow): Display {
+function sharePanelDisplay(callWindow: CallWindow): Display {
+  // Electron cannot tell where a shared window is, so the panel goes
+  // where the call window is.
   return (
     screen.getAllDisplays().find(({id}) => id === callWindow.sharedDisplayId) ??
-    screen.getPrimaryDisplay()
+    screen.getDisplayMatching(callWindow.window.getBounds())
   );
+}
+
+function updateSharePanel(callWindow: CallWindow): void {
+  const {state} = callWindow.remoteControl;
+  const {sharedSource} = callWindow;
+  if (
+    sharedSource === undefined ||
+    state.state === "none" ||
+    callWindow.window.isDestroyed()
+  ) {
+    callWindow.sharePanel?.close();
+    callWindow.sharePanel = undefined;
+    return;
+  }
+
+  callWindow.sharePanel ??= new SharePanel(stopControlShortcut, (action) => {
+    handleSharePanelAction(callWindow, action);
+  });
+  callWindow.sharePanel.show(sharePanelDisplay(callWindow), {
+    message:
+      state.state === "controlled"
+        ? t.__("{{{name}}} is controlling your screen", {
+            name: state.participant.name,
+          })
+        : t.__("You are sharing {{{source}}}", {source: sharedSource.name}),
+    shareButtons: callWindow.sharePanelSupported,
+    stopControl: state.state === "controlled",
+  });
+}
+
+async function chooseSourceToShare(
+  callWindow: CallWindow,
+): Promise<DesktopCapturerSource | undefined> {
+  if (callWindow.choosingSource) {
+    return undefined;
+  }
+
+  callWindow.choosingSource = true;
+  try {
+    return await chooseSource(
+      callWindow.window,
+      callWindow.sharePanel === undefined ? [] : [callWindow.sharePanel.window],
+    );
+  } finally {
+    callWindow.choosingSource = false;
+  }
+}
+
+async function changeSource(callWindow: CallWindow): Promise<void> {
+  const source = await chooseSourceToShare(callWindow);
+  // Canceling, or stopping the share meanwhile, keeps things as they are.
+  if (
+    source === undefined ||
+    callWindow.remoteControl.state.state === "none" ||
+    callWindow.window.isDestroyed()
+  ) {
+    return;
+  }
+
+  callWindow.replacementSource = source;
+  send(callWindow.window.webContents, "screen-share-change-source");
+}
+
+function handleSharePanelAction(
+  callWindow: CallWindow,
+  action: SharePanelAction,
+): void {
+  switch (action) {
+    case "change-source": {
+      void changeSource(callWindow).catch((error: unknown) => {
+        console.error("Failed to change the shared source:", error);
+      });
+      break;
+    }
+
+    case "stop-sharing": {
+      send(callWindow.window.webContents, "screen-share-stop");
+      break;
+    }
+
+    case "stop-control": {
+      callWindow.remoteControl.stop();
+      break;
+    }
+  }
 }
 
 export function openCallWindow(url: URL): void {
@@ -166,24 +262,18 @@ export function openCallWindow(url: URL): void {
     url: url.href,
     origin: url.origin,
     chosenSource: undefined,
+    replacementSource: undefined,
     choosingSource: false,
     sharedSource: undefined,
     sharedDisplayId: undefined,
+    sharePanelSupported: false,
+    sharePanel: undefined,
     controllerInput: undefined,
-    hideControlIndicator: undefined,
     stopWatchingCallPage: undefined,
     remoteControl: new RemoteControl({
       askConsent: async (participant, signal) =>
         askConsent(window, participant, signal),
-      controlStarted(controller) {
-        callWindow.hideControlIndicator = showControlIndicator(
-          sharedDisplay(callWindow),
-          controller.name,
-          stopControlShortcut,
-          () => {
-            callWindow.remoteControl.stop();
-          },
-        );
+      controlStarted() {
         callWindow.stopWatchingCallPage = watchCallPage(
           window.webContents,
           () => {
@@ -196,11 +286,15 @@ export function openCallWindow(url: URL): void {
         callWindow.stopWatchingCallPage?.();
         callWindow.stopWatchingCallPage = undefined;
         remoteInput?.releaseAll();
-        callWindow.hideControlIndicator?.();
-        callWindow.hideControlIndicator = undefined;
         updateStopControlShortcut();
       },
       stateChanged(state) {
+        if (state.state === "none") {
+          callWindow.replacementSource = undefined;
+          callWindow.sharedSource = undefined;
+        }
+
+        updateSharePanel(callWindow);
         if (!window.isDestroyed()) {
           send(window.webContents, "remote-control-state", state);
         }
@@ -247,6 +341,8 @@ export function openCallWindow(url: URL): void {
     callWindow.remoteControl.shareStopped();
   });
   window.on("closed", () => {
+    callWindow.sharePanel?.close();
+    callWindow.sharePanel = undefined;
     screen.off("display-removed", stopControlOnRemovedDisplay);
     powerMonitor.off("lock-screen", stopControl);
     callWindow.remoteControl.shareStopped();
@@ -266,21 +362,6 @@ export function getCallWindow(contents: WebContents): CallWindow | undefined {
   return URL.parse(contents.getURL())?.origin === callWindow.origin
     ? callWindow
     : undefined;
-}
-
-async function chooseSourceToShare(
-  callWindow: CallWindow,
-): Promise<DesktopCapturerSource | undefined> {
-  if (callWindow.choosingSource) {
-    return undefined;
-  }
-
-  callWindow.choosingSource = true;
-  try {
-    return await chooseSource(callWindow.window, []);
-  } finally {
-    callWindow.choosingSource = false;
-  }
 }
 
 export function handleCallPermissionRequest(
@@ -305,7 +386,14 @@ export function handleCallPermissionRequest(
       // Like browsers, we grant it by letting the user choose a source,
       // so that canceling rejects the request with NotAllowedError
       // rather than with the AbortError of handleDisplayMediaRequest.
-      callWindow.chosenSource = undefined;
+      // A source chosen from the share panel was chosen already.
+      callWindow.chosenSource = callWindow.replacementSource;
+      callWindow.replacementSource = undefined;
+      if (callWindow.chosenSource !== undefined) {
+        callback(true);
+        break;
+      }
+
       void chooseSourceToShare(callWindow)
         .then((source) => {
           callWindow.chosenSource = source;
@@ -340,7 +428,7 @@ export function handleDisplayMediaRequest(
 
   callWindow.chosenSource = undefined;
   const kind = sourceKind(source.id);
-  callWindow.sharedSource = {kind};
+  callWindow.sharedSource = {kind, name: source.name};
   callWindow.sharedDisplayId =
     kind === "screen" ? findDisplay(source)?.id : undefined;
   callback({video: source});
@@ -348,7 +436,14 @@ export function handleDisplayMediaRequest(
   callWindow.remoteControl.shareStarted();
 }
 
+// Call pages that ask what kind of source they got to share also handle
+// the buttons of the share panel.
 export function getSharedSourceKind(callWindow: CallWindow): SourceKind | null {
+  if (!callWindow.sharePanelSupported) {
+    callWindow.sharePanelSupported = true;
+    updateSharePanel(callWindow);
+  }
+
   return callWindow.sharedSource?.kind ?? null;
 }
 

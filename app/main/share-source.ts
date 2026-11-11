@@ -1,7 +1,16 @@
 // Which screens and windows the user can share from a call window, and
-// what the source picker reports.
+// what the source picker and the share panel report.
 
 export type SourceKind = "screen" | "window";
+
+export type SharePanelAction =
+  "change-source" | "stop-sharing" | "stop-control";
+
+const sharePanelActions: readonly SharePanelAction[] = [
+  "change-source",
+  "stop-sharing",
+  "stop-control",
+];
 
 export function sourceKind(id: string): SourceKind {
   return id.startsWith("screen:") ? "screen" : "window";
@@ -31,4 +40,11 @@ export function chosenSource<Source extends {id: string}>(
   offered: readonly Source[],
 ): Source | undefined {
   return offered.find((source) => source.id === message);
+}
+
+// The button clicked in the share panel.
+export function sharePanelAction(
+  message: unknown,
+): SharePanelAction | undefined {
+  return sharePanelActions.find((action) => action === message);
 }

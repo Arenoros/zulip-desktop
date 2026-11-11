@@ -2,6 +2,7 @@ import test from "tape";
 
 import {
   chosenSource,
+  sharePanelAction,
   sourceKind,
   sourcesToOffer,
 } from "../app/main/share-source.ts";
@@ -36,5 +37,14 @@ test("Only an offered source can be chosen", (t) => {
   t.equal(chosenSource(callWindow.id, offered), undefined, "not offered");
   t.equal(chosenSource({id: editor.id}, offered), undefined, "not an ID");
   t.equal(chosenSource(undefined, offered), undefined);
+  t.end();
+});
+
+test("The share panel reports the buttons clicked", (t) => {
+  t.equal(sharePanelAction("change-source"), "change-source");
+  t.equal(sharePanelAction("stop-sharing"), "stop-sharing");
+  t.equal(sharePanelAction("stop-control"), "stop-control");
+  t.equal(sharePanelAction("quit"), undefined, "unknown button");
+  t.equal(sharePanelAction(1), undefined);
   t.end();
 });
