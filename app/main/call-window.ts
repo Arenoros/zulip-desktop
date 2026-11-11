@@ -6,7 +6,6 @@ import {
   type Event,
   type Streams,
   type WebContents,
-  desktopCapturer,
   dialog,
   globalShortcut,
   powerMonitor,
@@ -24,6 +23,8 @@ import {showControlIndicator} from "./control-indicator.ts";
 import {ControllerInput} from "./controller-input.ts";
 import {RemoteControl} from "./remote-control.ts";
 import {loadRemoteInput} from "./remote-input.ts";
+import {type SourceKind, sourceKind} from "./share-source.ts";
+import {chooseSource, findDisplay} from "./source-picker.ts";
 import {send} from "./typed-ipc-main.ts";
 
 const stopControlShortcut = "Ctrl+Alt+Shift+S";
@@ -32,10 +33,13 @@ type CallWindow = {
   window: BrowserWindow;
   url: string;
   origin: string;
-  // The screen the user chose to share, until the call page gets it.
-  chosenScreen: DesktopCapturerSource | undefined;
-  // The display the call page last got to share.  Only the main process
-  // sets it, so that the call page cannot pick what is controlled.
+  // The source the user chose to share, until the call page gets it.
+  chosenSource: DesktopCapturerSource | undefined;
+  choosingSource: boolean;
+  // What the call page last got to share, and the display if it is a
+  // screen.  Only the main process sets them, so that the call page
+  // cannot pick what is controlled.
+  sharedSource: {kind: SourceKind} | undefined;
   sharedDisplayId: number | undefined;
   remoteControl: RemoteControl;
   controllerInput: ControllerInput | undefined;
@@ -161,7 +165,9 @@ export function openCallWindow(url: URL): void {
     window,
     url: url.href,
     origin: url.origin,
-    chosenScreen: undefined,
+    chosenSource: undefined,
+    choosingSource: false,
+    sharedSource: undefined,
     sharedDisplayId: undefined,
     controllerInput: undefined,
     hideControlIndicator: undefined,
@@ -262,45 +268,19 @@ export function getCallWindow(contents: WebContents): CallWindow | undefined {
     : undefined;
 }
 
-function findDisplay(source: DesktopCapturerSource): Display | undefined {
-  return screen
-    .getAllDisplays()
-    .find(({id}) => String(id) === source.display_id);
-}
-
-function screenLabel(source: DesktopCapturerSource): string {
-  const display = findDisplay(source);
-  if (display === undefined) {
-    return source.name;
-  }
-
-  const size = {
-    width: String(Math.round(display.size.width * display.scaleFactor)),
-    height: String(Math.round(display.size.height * display.scaleFactor)),
-  };
-  // On Windows, the lines after the first one of a button label are
-  // shown as its description.
-  return `${source.name}\n${
-    display.id === screen.getPrimaryDisplay().id
-      ? t.__("{{{width}}} × {{{height}}}, primary screen", size)
-      : t.__("{{{width}}} × {{{height}}}", size)
-  }`;
-}
-
-async function chooseScreen(
+async function chooseSourceToShare(
   callWindow: CallWindow,
 ): Promise<DesktopCapturerSource | undefined> {
-  const sources = await desktopCapturer.getSources({
-    types: ["screen"],
-    thumbnailSize: {width: 0, height: 0},
-  });
-  const {response} = await dialog.showMessageBox(callWindow.window, {
-    title: t.__("Share screen"),
-    message: t.__("Choose a screen to share"),
-    buttons: [...sources.map((source) => screenLabel(source)), t.__("Cancel")],
-    cancelId: sources.length,
-  });
-  return sources[response];
+  if (callWindow.choosingSource) {
+    return undefined;
+  }
+
+  callWindow.choosingSource = true;
+  try {
+    return await chooseSource(callWindow.window, []);
+  } finally {
+    callWindow.choosingSource = false;
+  }
 }
 
 export function handleCallPermissionRequest(
@@ -322,17 +302,17 @@ export function handleCallPermissionRequest(
 
     case "display-capture": {
       // The page asks for this permission whenever it shares a screen.
-      // Like browsers, we grant it by letting the user choose a screen,
+      // Like browsers, we grant it by letting the user choose a source,
       // so that canceling rejects the request with NotAllowedError
       // rather than with the AbortError of handleDisplayMediaRequest.
-      callWindow.chosenScreen = undefined;
-      void chooseScreen(callWindow)
+      callWindow.chosenSource = undefined;
+      void chooseSourceToShare(callWindow)
         .then((source) => {
-          callWindow.chosenScreen = source;
+          callWindow.chosenSource = source;
           callback(source !== undefined);
         })
         .catch((error: unknown) => {
-          console.error("Failed to choose a screen to share:", error);
+          console.error("Failed to choose a source to share:", error);
           callback(false);
         });
       break;
@@ -352,24 +332,33 @@ export function handleDisplayMediaRequest(
     request.frame === null ? undefined : webContents.fromFrame(request.frame);
   const callWindow =
     contents === undefined ? undefined : getCallWindow(contents);
-  const source = callWindow?.chosenScreen;
+  const source = callWindow?.chosenSource;
   if (callWindow === undefined || source === undefined) {
     callback(null);
     return;
   }
 
-  callWindow.chosenScreen = undefined;
-  callWindow.sharedDisplayId = findDisplay(source)?.id;
+  callWindow.chosenSource = undefined;
+  const kind = sourceKind(source.id);
+  callWindow.sharedSource = {kind};
+  callWindow.sharedDisplayId =
+    kind === "screen" ? findDisplay(source)?.id : undefined;
   callback({video: source});
+  // Sharing another source ends the control of the previous one.
   callWindow.remoteControl.shareStarted();
+}
+
+export function getSharedSourceKind(callWindow: CallWindow): SourceKind | null {
+  return callWindow.sharedSource?.kind ?? null;
 }
 
 export function requestRemoteControl(
   callWindow: CallWindow,
   participant: CallParticipant,
 ): void {
-  // Whoever controls a screen could answer the consent dialog.
-  if (isAnyScreenControlled()) {
+  // Whoever controls a screen could answer the consent dialog, and only
+  // a shared screen, not a window, can be controlled.
+  if (isAnyScreenControlled() || callWindow.sharedDisplayId === undefined) {
     return;
   }
 

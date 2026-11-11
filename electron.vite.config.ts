@@ -29,6 +29,7 @@ export default defineConfig({
         input: {
           preload: "app/renderer/js/preload.ts",
           renderer: "app/renderer/js/main.ts",
+          "share-ui": "app/renderer/js/share-ui-preload.ts",
         },
         output: {
           format: "cjs",

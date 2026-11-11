@@ -28,6 +28,7 @@ import {appUpdater, shouldQuitForUpdate} from "./autoupdater.ts";
 import * as BadgeSettings from "./badge-settings.ts";
 import {
   getCallWindow,
+  getSharedSourceKind,
   handleCallPermissionRequest,
   handleDisplayMediaRequest,
   requestRemoteControl,
@@ -403,6 +404,12 @@ function createMainWindow(): BrowserWindow {
 
   ipcMain.on("stop-remote-control", (event) => {
     getCallWindow(event.sender)?.remoteControl.stop();
+  });
+
+  ipcMain.on("screen-share-source-kind", (event) => {
+    const callWindow = getCallWindow(event.sender);
+    event.returnValue =
+      callWindow === undefined ? null : getSharedSourceKind(callWindow);
   });
 
   ipcMain.on("screen-share-stopped", (event) => {

@@ -28,6 +28,7 @@ export type ElectronBridge = {
   request_remote_control: (identity: string, name: string) => void;
   stop_remote_control: () => void;
   remote_control_participant_left: (identity: string) => void;
+  get_screen_share_source_kind: () => "screen" | "window" | null;
   screen_share_stopped: () => void;
 };
 /* eslint-enable @typescript-eslint/naming-convention */
@@ -98,6 +99,9 @@ const electron_bridge: ElectronBridge = {
   remote_control_participant_left(identity: string): void {
     ipcRenderer.send("remote-control-participant-left", identity);
   },
+
+  get_screen_share_source_kind: (): "screen" | "window" | null =>
+    ipcRenderer.sendSync("screen-share-source-kind"),
 
   screen_share_stopped(): void {
     ipcRenderer.send("screen-share-stopped");
